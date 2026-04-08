@@ -166,7 +166,7 @@ class TestSanitizeFilename:
     def test_path_traversal(self):
         """Test path traversal is removed."""
         assert sanitize_filename("../file.jpg") == "file.jpg"
-        assert sanitize_filename("/etc/passwd") == "etcpasswd"
+        assert sanitize_filename("/etc/passwd") == "etc_passwd"
 
     def test_empty_input(self):
         """Test empty input returns unnamed."""

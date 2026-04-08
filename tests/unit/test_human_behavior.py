@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch, PropertyMock
 import time
+from selenium.webdriver.common.by import By
 
 from img_fetch.automation.human_behavior import HumanBehavior
 from img_fetch.automation.browser import Browser
@@ -67,6 +68,8 @@ class TestHumanBehavior:
         """Test hovering over element."""
         mock_element = Mock()
         mock_action_chains = Mock()
+        # move_to_element returns self (ActionChains) for chaining
+        mock_action_chains.move_to_element.return_value = mock_action_chains
         human_behavior._action_chains = mock_action_chains
 
         human_behavior.hover_element(mock_element)
@@ -78,6 +81,8 @@ class TestHumanBehavior:
         """Test clicking element with delay and hover."""
         mock_element = Mock()
         mock_action_chains = Mock()
+        # move_to_element returns self (ActionChains) for chaining
+        mock_action_chains.move_to_element.return_value = mock_action_chains
         human_behavior._action_chains = mock_action_chains
 
         with patch.object(human_behavior, 'random_delay') as mock_delay:

@@ -160,13 +160,16 @@ def sanitize_filename(filename: str) -> str:
     if not filename:
         return "unnamed"
 
+    # Remove path traversal FIRST (security critical)
+    filename = filename.replace("..", "")
+    filename = filename.lstrip("/")
+
     # Replace forbidden characters
     for char in FORBIDDEN_CHARS:
         filename = filename.replace(char, "_")
 
-    # Remove path traversal
-    filename = filename.replace("..", "")
-    filename = filename.lstrip("/")
+    # Remove any remaining path separators that might have been created
+    filename = filename.replace("/", "_").replace("\\", "_")
 
     # Ensure not empty
     if not filename or filename.strip() == "":
