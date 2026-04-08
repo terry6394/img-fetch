@@ -27,14 +27,17 @@ class YouzanFetcher(BaseFetcher):
     # Rate limit for youzan.com
     DEFAULT_RATE_LIMIT = 30  # requests per minute
 
-    def __init__(self, rate_limiter: Optional[RateLimiter] = None):
+    def __init__(self, rate_limiter: Optional[RateLimiter] = None, output_dir: Optional["Path"] = None):
         """
         Initialize Youzan fetcher.
 
         Args:
             rate_limiter: Rate limiter instance (creates new if None)
+            output_dir: Output directory for images (defaults to IMAGES_DIR)
         """
+        from img_fetch.config import IMAGES_DIR
         self._rate_limiter = rate_limiter or RateLimiter(RATE_LIMITS)
+        self._output_dir = output_dir or IMAGES_DIR
 
     def supports(self, product: Product) -> bool:
         """
@@ -357,6 +360,8 @@ class YouzanFetcher(BaseFetcher):
             from img_fetch.core.file_namer import normalize_filename, get_image_path
             from img_fetch.config import IMAGES_DIR
             from datetime import datetime
+            from PIL import Image
+            import io
 
             # Download image using requests (handles SOCKS proxy natively)
             response = requests.get(image_url, timeout=30, allow_redirects=True)
@@ -371,18 +376,46 @@ class YouzanFetcher(BaseFetcher):
             else:
                 ext = self._get_extension_from_content_type(content_type)
 
+            image_content = response.content
+
+            # Check image size (skip if < 5KB, likely placeholder)
+            if len(image_content) < 5 * 1024:
+                logger.warning(f"Image too small ({len(image_content)} bytes), likely placeholder: {image_url}")
+                raise ImageNotFoundError(f"Image too small ({len(image_content)} bytes), likely placeholder")
+
+            # Check image dimensions using PIL
+            try:
+                img = Image.open(io.BytesIO(image_content))
+                width, height = img.size
+
+                # Skip if image is too small (less than 200x200)
+                if width < 200 or height < 200:
+                    logger.warning(f"Image too small ({width}x{height}), likely placeholder: {image_url}")
+                    raise ImageNotFoundError(f"Image too small ({width}x{height}), likely placeholder")
+
+                # Skip if image is too large (unreasonably huge)
+                if width > 10000 or height > 10000:
+                    logger.warning(f"Image too large ({width}x{height}), likely invalid: {image_url}")
+                    raise ImageNotFoundError(f"Image too large ({width}x{height}), likely invalid")
+
+            except ImageNotFoundError:
+                raise
+            except Exception as img_error:
+                logger.warning(f"Could not verify image dimensions: {img_error}")
+                # Continue anyway if we can't check dimensions
+
             # Generate filename
             filename = normalize_filename(product.name, product.spec, product.brand)
             if not filename.endswith(ext):
                 filename = filename.rsplit(".", 1)[0] + ext
 
             # Determine save path
-            brand_dir = IMAGES_DIR / product.brand.upper().replace(" ", "_")
+            brand_dir = self._output_dir / product.brand.upper().replace(" ", "_")
             brand_dir.mkdir(parents=True, exist_ok=True)
             save_path = brand_dir / filename
 
             # Save image
-            save_path.write_bytes(response.content)
+            save_path.write_bytes(image_content)
 
             # Update product with image path and metadata
             product.image_path = str(save_path)

@@ -1,6 +1,7 @@
 """Selenium browser controller with anti-detection features."""
 
 import time
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,9 @@ from selenium.common.exceptions import (
     NoSuchElementException,
 )
 
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
+
 from img_fetch.config import BROWSER_CONFIG, HUMAN_BEHAVIOR_CONFIG
 from img_fetch.utils.exceptions import BrowserError, AntiBotDetectedError
 
@@ -25,6 +29,9 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Chrome binary path for macOS
+CHROME_BINARY_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
 class Browser:
@@ -74,7 +81,9 @@ class Browser:
         options = self._get_chrome_options()
 
         try:
-            self.driver = webdriver.Chrome(options=options)
+            # Use webdriver-manager to handle chromedriver installation
+            service = Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install())
+            self.driver = webdriver.Chrome(service=service, options=options)
             self._configure_driver()
         except WebDriverException as e:
             raise BrowserError(f"Failed to initialize Chrome driver: {e}")
@@ -82,6 +91,10 @@ class Browser:
     def _get_chrome_options(self) -> Options:
         """Get Chrome options with anti-detection features."""
         options = Options()
+
+        # Set Chrome binary path for macOS
+        if os.path.exists(CHROME_BINARY_PATH):
+            options.binary_location = CHROME_BINARY_PATH
 
         if self.headless:
             options.add_argument("--headless=new")

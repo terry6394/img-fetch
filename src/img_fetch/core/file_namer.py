@@ -176,3 +176,37 @@ def sanitize_filename(filename: str) -> str:
         return "unnamed"
 
     return filename.strip()
+
+
+class FileNamer:
+    """
+    Generates normalized filenames for product images.
+
+    Usage:
+        namer = FileNamer()
+        filename = namer.generate_filename(product, ".jpg")
+    """
+
+    def generate_filename(self, product, ext: str = ".jpg") -> str:
+        """
+        Generate a normalized filename for a product image.
+
+        Args:
+            product: Product object with name, spec, brand
+            ext: File extension (default: .jpg)
+
+        Returns:
+            Normalized filename string
+        """
+        # Use normalize_filename function with product attributes
+        filename = normalize_filename(
+            name=product.name,
+            spec=product.spec,
+            brand=product.brand
+        )
+
+        # Ensure filename has the correct extension
+        if ext and not filename.lower().endswith(ext.lower()):
+            filename = filename.rsplit(".", 1)[0] + ext if "." in filename else filename + ext
+
+        return filename

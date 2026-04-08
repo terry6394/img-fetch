@@ -30,6 +30,7 @@ class EcommerceFetcher(BaseFetcher):
         self,
         browser: Optional[Browser] = None,
         rate_limiter: Optional[RateLimiter] = None,
+        output_dir: Optional["Path"] = None,
     ):
         """
         Initialize e-commerce fetcher.
@@ -37,10 +38,13 @@ class EcommerceFetcher(BaseFetcher):
         Args:
             browser: Browser instance (creates new if None)
             rate_limiter: Rate limiter instance (creates new if None)
+            output_dir: Output directory for images (defaults to IMAGES_DIR)
         """
+        from img_fetch.config import IMAGES_DIR
         self._browser = browser
         self._rate_limiter = rate_limiter or RateLimiter(RATE_LIMITS)
         self._human_behavior: Optional[HumanBehavior] = None
+        self._output_dir = output_dir or IMAGES_DIR
 
     @property
     def browser(self) -> Browser:
@@ -342,7 +346,7 @@ class EcommerceFetcher(BaseFetcher):
 
     def _download_image(self, url: str, product: Product) -> Optional[str]:
         """
-        Download image from URL.
+        Download image from URL with placeholder detection.
 
         Args:
             url: Image URL
@@ -352,10 +356,12 @@ class EcommerceFetcher(BaseFetcher):
             Path to saved image, or None if failed
         """
         from img_fetch.core.file_namer import FileNamer
+        from img_fetch.config import IMAGES_DIR
 
         try:
             import requests
-            from img_fetch.config import IMAGES_DIR
+            from PIL import Image
+            import io
 
             # Handle protocol-relative URLs
             if url.startswith("//"):
@@ -369,14 +375,44 @@ class EcommerceFetcher(BaseFetcher):
                 logger.warning(f"URL does not appear to be an image: {url}")
                 return None
 
+            image_content = response.content
+
+            # Check image size (skip if < 5KB, likely placeholder)
+            if len(image_content) < 5 * 1024:
+                logger.warning(f"Image too small ({len(image_content)} bytes), likely placeholder: {url}")
+                return None
+
+            # Check image dimensions using PIL
+            try:
+                img = Image.open(io.BytesIO(image_content))
+                width, height = img.size
+
+                # Skip if image is too small (less than 200x200)
+                if width < 200 or height < 200:
+                    logger.warning(f"Image too small ({width}x{height}), likely placeholder: {url}")
+                    return None
+
+                # Skip if image is too large (unreasonably huge)
+                if width > 10000 or height > 10000:
+                    logger.warning(f"Image too large ({width}x{height}), likely invalid: {url}")
+                    return None
+
+            except Exception as img_error:
+                logger.warning(f"Could not verify image dimensions: {img_error}")
+                # Continue anyway if we can't check dimensions
+
             ext = self._get_extension_from_url(url) or self._get_extension_from_content_type(content_type) or ".jpg"
 
             namer = FileNamer()
             filename = namer.generate_filename(product, ext)
-            filepath = IMAGES_DIR / filename
+            filepath = self._output_dir / filename
 
-            filepath.write_bytes(response.content)
+            # Ensure brand directory exists
+            filepath.parent.mkdir(parents=True, exist_ok=True)
 
+            filepath.write_bytes(image_content)
+
+            logger.info(f"Downloaded image ({width}x{height}, {len(image_content)} bytes) for {product.name}")
             return str(filepath)
 
         except Exception as e:

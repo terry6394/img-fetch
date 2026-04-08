@@ -327,6 +327,11 @@ def _fetch_product_image(product: Product, output_dir: Path) -> tuple[bool, Opti
     """
     Fetch image for a single product using appropriate fetcher.
 
+    Image Source Priority:
+    1. Brand official website (highest priority)
+    2. Amazon / JD / Taobao
+    3. Youzan (only as last resort)
+
     Args:
         product: Product to fetch image for
         output_dir: Output directory path
@@ -336,23 +341,10 @@ def _fetch_product_image(product: Product, output_dir: Path) -> tuple[bool, Opti
     """
     from img_fetch.core.product import FetchAttempt
     from img_fetch.fetchers.youzan_fetcher import YouzanFetcher
+    from img_fetch.fetchers.ecommerce_fetcher import EcommerceFetcher
+    from img_fetch.config import ECOMMERCE_SITES
 
-    # If product has a direct URL, try to download from it
-    if product.product_url:
-        # Use YouzanFetcher for youzan URLs
-        if "youzan.com" in product.product_url.lower() or "yzcdn.cn" in product.product_url.lower():
-            attempt = _try_youzan_fetcher(product, output_dir)
-        else:
-            attempt = _try_fetch_from_url(product.product_url, product, output_dir)
-
-        product.attempts.append(attempt)
-        if attempt.source not in product.tried_sources:
-            product.tried_sources.append(attempt.source)
-
-        if attempt.status == "success" and product.image_path:
-            return True, product.image_path
-
-    # If no URL or fetch failed, try to use brand fetcher for known brands
+    # 1. Try brand website first (highest priority)
     if product.brand:
         attempt = _try_brand_fetcher(product, output_dir)
         product.attempts.append(attempt)
@@ -361,6 +353,41 @@ def _fetch_product_image(product: Product, output_dir: Path) -> tuple[bool, Opti
 
         if attempt.status == "success" and product.image_path:
             return True, product.image_path
+
+    # 2. If product has a direct URL from e-commerce, try it
+    if product.product_url:
+        url_lower = product.product_url.lower()
+        is_ecommerce = any(
+            platform in url_lower or base_url.replace("https://www.", "") in url_lower
+            for platform, base_url in ECOMMERCE_SITES.items()
+        )
+
+        if is_ecommerce:
+            attempt = _try_ecommerce_fetcher(product, output_dir)
+            product.attempts.append(attempt)
+            if attempt.source not in product.tried_sources:
+                product.tried_sources.append(attempt.source)
+
+            if attempt.status == "success" and product.image_path:
+                return True, product.image_path
+        elif "youzan.com" in url_lower or "yzcdn.cn" in url_lower:
+            # 3. Try Youzan as last resort
+            attempt = _try_youzan_fetcher(product, output_dir)
+            product.attempts.append(attempt)
+            if attempt.source not in product.tried_sources:
+                product.tried_sources.append(attempt.source)
+
+            if attempt.status == "success" and product.image_path:
+                return True, product.image_path
+        else:
+            # Try direct URL fetch for other URLs
+            attempt = _try_fetch_from_url(product.product_url, product, output_dir)
+            product.attempts.append(attempt)
+            if attempt.source not in product.tried_sources:
+                product.tried_sources.append(attempt.source)
+
+            if attempt.status == "success" and product.image_path:
+                return True, product.image_path
 
     # All attempts failed
     if not product.error_message:
@@ -386,7 +413,9 @@ def _try_youzan_fetcher(product: Product, output_dir: Path) -> FetchAttempt:
     source = "youzan"
 
     try:
-        fetcher = YouzanFetcher()
+        images_path = output_dir / "images"
+        images_path.mkdir(parents=True, exist_ok=True)
+        fetcher = YouzanFetcher(output_dir=images_path)
         image_path = fetcher.fetch(product)
 
         if image_path and product.image_path:
@@ -404,6 +433,51 @@ def _try_youzan_fetcher(product: Product, output_dir: Path) -> FetchAttempt:
                 error=product.error_message or "No image found"
             )
 
+    except Exception as e:
+        return FetchAttempt(
+            source=source,
+            status="failed",
+            url=product.product_url,
+            error=str(e)
+        )
+
+
+def _try_ecommerce_fetcher(product: Product, output_dir: Path) -> FetchAttempt:
+    """
+    Try to fetch image using e-commerce fetcher (Amazon, JD, Taobao).
+
+    Args:
+        product: Product to fetch
+        output_dir: Output directory
+
+    Returns:
+        FetchAttempt with results
+    """
+    from img_fetch.core.product import FetchAttempt
+    from img_fetch.fetchers.ecommerce_fetcher import EcommerceFetcher
+
+    source = "ecommerce"
+
+    try:
+        images_path = output_dir / "images"
+        images_path.mkdir(parents=True, exist_ok=True)
+        fetcher = EcommerceFetcher(output_dir=images_path)
+        image_path = fetcher.fetch(product)
+
+        if image_path and product.image_path:
+            return FetchAttempt(
+                source=source,
+                status="success",
+                url=product.product_url,
+                error=""
+            )
+        else:
+            return FetchAttempt(
+                source=source,
+                status="failed",
+                url=product.product_url,
+                error=product.error_message or "No image found on e-commerce site"
+            )
     except Exception as e:
         return FetchAttempt(
             source=source,
@@ -525,7 +599,7 @@ def _get_extension_from_url(url: str) -> Optional[str]:
 
 def _try_brand_fetcher(product: Product, output_dir: Path) -> FetchAttempt:
     """
-    Try to fetch image using brand fetcher (mock implementation for now).
+    Try to fetch image using brand fetcher with real browser automation.
 
     Args:
         product: Product object
@@ -536,6 +610,7 @@ def _try_brand_fetcher(product: Product, output_dir: Path) -> FetchAttempt:
     """
     from img_fetch.core.product import FetchAttempt
     from img_fetch.config import BRAND_WEBSITES
+    from img_fetch.fetchers.brand_fetcher import BrandFetcher
 
     brand_key = product.brand.upper().replace(" ", "_").replace(".", "")
     website = BRAND_WEBSITES.get(brand_key)
@@ -548,14 +623,33 @@ def _try_brand_fetcher(product: Product, output_dir: Path) -> FetchAttempt:
             error=f"No known website for brand: {product.brand}"
         )
 
-    # For now, brand fetcher is not fully implemented
-    # Return a failed attempt indicating more work is needed
-    return FetchAttempt(
-        source=f"brand:{product.brand}",
-        status="failed",
-        url=website,
-        error="Brand fetcher not yet implemented - requires browser automation"
-    )
+    try:
+        images_path = output_dir / "images"
+        images_path.mkdir(parents=True, exist_ok=True)
+        fetcher = BrandFetcher(output_dir=images_path)
+        image_path = fetcher.fetch(product)
+
+        if image_path and product.image_path:
+            return FetchAttempt(
+                source=f"brand:{product.brand}",
+                status="success",
+                url=website,
+                error=""
+            )
+        else:
+            return FetchAttempt(
+                source=f"brand:{product.brand}",
+                status="failed",
+                url=website,
+                error=product.error_message or "No image found on brand website"
+            )
+    except Exception as e:
+        return FetchAttempt(
+            source=f"brand:{product.brand}",
+            status="failed",
+            url=website,
+            error=str(e)
+        )
 
 
 def main():

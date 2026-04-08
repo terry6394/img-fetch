@@ -2,126 +2,75 @@
 
 LLM-powered image fetching skill for e-commerce products.
 
-## 功能
+根据 Excel 表格或清单中的商品名称和规格，自动从品牌官网、电商平台抓取产品图片。
 
-根据 Excel 表格或清单中的商品名称和规格抓取产品图片。
-
-## 安装
+## 快速开始
 
 ```bash
-pip install -e .
+# 方式1: 使用 Python 模块
+PYTHONPATH=src python3 -m img_fetch.main products.xlsx -o output -n "商品名称" -s "商品规格"
+
+# 方式2: Claude Code Skill
+/img-fetch products.xlsx
 ```
 
-## 使用方法
+## 文档
 
-### 基本用法
+- [ARCHITECTURE.md](ARCHITECTURE.md) - 系统架构和工作流程详解
+- [REVIEW.md](REVIEW.md) - 需求分析和设计决策
+- [CLAUDE.md](CLAUDE.md) - 开发规范
 
-```bash
-img-fetch <input_file> [options]
-```
+## 功能特性
 
-### 命令行参数
+- 多源图片抓取: 品牌官网 > 电商平台 > Youzan
+- 浏览器自动化: Selenium Chrome 真实浏览器抓取
+- 人类行为模拟: 随机延迟、反爬虫规避
+- 图片验证: 自动识别并拒绝骨架占位图
+- 断点续传: manifest.json 记录处理进度
+- Excel报告: 生成可读的 report.xlsx
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `input_file` | 输入文件路径（Excel/CSV/JSON） | 必需 |
-| `-o, --output-dir` | 输出目录路径 | `./output` |
-| `-b, --brand-field` | 品牌字段名（可选，自动从商品名称提取） | 自动检测 |
-| `-n, --name-field` | 商品名称字段名 | `name` |
-| `-s, --spec-field` | 商品规格字段名 | `spec` |
+## 输入文件格式
 
-### 示例
+### Excel (.xlsx)
 
-```bash
-# 基本用法
-img-fetch products.xlsx
+| 列名 | 说明 |
+|------|------|
+| 商品名称 | 产品名称 |
+| 商品规格 | 规格/颜色/尺寸 |
+| 商品链接 | 有赞商品链接 (可选) |
 
-# 指定输出目录和字段
-img-fetch products.xlsx -o ./images -n product_name -s specification
-
-# 指定品牌字段
-img-fetch products.xlsx -b brand
-```
-
-### 输入文件格式
-
-#### Excel 文件 (.xlsx, .xls)
-
-需要包含表头行，支持的列名（大小写不敏感）:
-- `name` 或 `product_name`: 商品名称
-- `spec` 或 `specification`: 商品规格
-- `brand` (可选): 品牌名称
-
-#### CSV 文件 (.csv)
-
-```csv
-name,spec,brand
-HAGLOFS Alpha Jacket,BLACK-M,HAGLOFS
-STONE ISLAND Cotton,RED-L,STONE_ISLAND
-```
-
-#### JSON 文件 (.json)
+### JSON (.json)
 
 ```json
 {
   "products": [
-    {"name": "HAGLOFS Alpha Jacket", "spec": "BLACK-M", "brand": "HAGLOFS"},
-    {"name": "STONE ISLAND Cotton", "spec": "RED-L", "brand": "STONE_ISLAND"}
+    {"name": "HAGLOFS Alpha Jacket", "spec": "BLACK-M"}
   ]
 }
 ```
 
-或直接为数组格式:
-```json
-[
-  {"name": "HAGLOFS Alpha Jacket", "spec": "BLACK-M"},
-  {"name": "STONE ISLAND Cotton", "spec": "RED-L"}
-]
-```
-
-### 输出结构
+## 输出
 
 ```
 output/
-└── images/
-    └── {BRAND}/
-        └── {BRAND}_{NAME}_{SPEC}.jpg
+├── images/
+│   └── {BRAND}/
+│       └── {BRAND}_{NAME}_{SPEC}.jpg
+├── manifest.json   # 处理进度
+└── report.xlsx     # Excel报告
 ```
 
 ## 开发
 
-### 运行测试
-
 ```bash
-pytest tests/ -v
-```
+# 安装依赖
+pip install -e .
 
-### 代码覆盖率
+# 运行测试
+python3 -m pytest tests/ -v
 
-```bash
-pytest tests/ --cov=src --cov-report=term-missing
-```
-
-## 项目结构
-
-```
-img_fetch/
-├── src/img_fetch/
-│   ├── main.py           # 入口点
-│   ├── config.py         # 配置
-│   ├── core/             # 核心模块
-│   │   ├── product.py    # 产品数据模型
-│   │   ├── brand_extractor.py  # 品牌提取
-│   │   └── file_namer.py       # 文件命名
-│   ├── readers/          # 文件读取
-│   ├── fetchers/         # 图片获取
-│   ├── agents/           # LLM代理
-│   ├── automation/       # 浏览器自动化
-│   ├── writers/          # 文件写入
-│   └── utils/            # 工具函数
-└── tests/
-    ├── unit/             # 单元测试
-    └── integration/      # 集成测试
+# 带覆盖率
+python3 -m pytest tests/ --cov=src --cov-report=term-missing
 ```
 
 ## License
