@@ -1,0 +1,158 @@
+"""Unit tests for ExcelReader."""
+
+import pytest
+from pathlib import Path
+
+from img_fetch.core.product import Product
+from img_fetch.readers.excel_reader import ExcelReader
+
+
+@pytest.fixture
+def excel_reader():
+    """Create an ExcelReader instance."""
+    return ExcelReader()
+
+
+@pytest.fixture
+def sample_excel_file(tmp_path):
+    """Create a sample Excel file for testing."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Products"
+
+    # Header row
+    ws.append(["商品名称", "商品规格", "商品编码", "规格编码", "商品链接"])
+
+    # Data rows
+    ws.append(["HAGLOFS Alpha Jacket", "Black/L", "HG001", "HG001-BL-L", "https://haglofs.com/alpha"])
+    ws.append(["STONE ISLAND Ribbed Cotton", "Navy", "SI002", "SI002-NV", "https://stoneisland.com/ribbed"])
+    ws.append(["CANADA GOOSE Expedition Parka", "Black", "CG003", "CG003-BK", ""])
+    ws.append(["", "Missing Name", "HG004", "HG004-BL-L", ""])  # Row with missing name
+    ws.append(["HELLY HANSEN Workwear", "", "HH005", "HH005-WK", "https://hellyhansen.com/workwear"])
+
+    file_path = tmp_path / "products.xlsx"
+    wb.save(file_path)
+    wb.close()
+
+    return str(file_path)
+
+
+class TestExcelReader:
+    """Tests for ExcelReader class."""
+
+    def test_supports_xlsx(self, excel_reader):
+        """Test that ExcelReader supports .xlsx files."""
+        assert excel_reader.supports("products.xlsx") is True
+        assert excel_reader.supports("products.xls") is True
+        assert excel_reader.supports("data.xlsx") is True
+
+    def test_supports_non_excel(self, excel_reader):
+        """Test that ExcelReader does not support non-Excel files."""
+        assert excel_reader.supports("products.csv") is False
+        assert excel_reader.supports("products.json") is False
+        assert excel_reader.supports("products.txt") is False
+
+    def test_read_excel_file(self, excel_reader, sample_excel_file):
+        """Test reading products from an Excel file."""
+        products = excel_reader.read(sample_excel_file)
+
+        assert len(products) == 4  # 5 rows minus 1 with missing name
+
+        # Check first product
+        assert products[0].name == "HAGLOFS Alpha Jacket"
+        assert products[0].spec == "Black/L"
+        assert products[0].product_code == "HG001"
+        assert products[0].spec_code == "HG001-BL-L"
+        assert products[0].product_url == "https://haglofs.com/alpha"
+        assert products[0].brand == "HAGLOFS"
+        assert products[0].excel_row == 2
+
+        # Check second product
+        assert products[1].name == "STONE ISLAND Ribbed Cotton"
+        assert products[1].spec == "Navy"
+        assert products[1].brand == "STONE_ISLAND"
+
+        # Check third product (CANADA GOOSE)
+        assert products[2].name == "CANADA GOOSE Expedition Parka"
+        assert products[2].brand == "CANADA_GOOSE"
+
+        # Check fourth product (HELLY HANSEN with empty spec)
+        assert products[3].name == "HELLY HANSEN Workwear"
+        assert products[3].spec == ""
+        assert products[3].brand == "HELLY_HANSEN"
+
+    def test_read_nonexistent_file(self, excel_reader):
+        """Test reading a non-existent file returns empty list."""
+        products = excel_reader.read("nonexistent.xlsx")
+        assert products == []
+
+    def test_brand_extraction(self, excel_reader, sample_excel_file):
+        """Test that brand is correctly extracted from product name."""
+        products = excel_reader.read(sample_excel_file)
+
+        brands = [p.brand for p in products]
+        assert "HAGLOFS" in brands
+        assert "STONE_ISLAND" in brands
+        assert "CANADA_GOOSE" in brands
+        assert "HELLY_HANSEN" in brands
+
+    def test_excel_row_tracking(self, excel_reader, sample_excel_file):
+        """Test that excel_row is correctly set for each product."""
+        products = excel_reader.read(sample_excel_file)
+
+        # First data row is row 2 (after header)
+        assert products[0].excel_row == 2
+        assert products[1].excel_row == 3
+        assert products[2].excel_row == 4
+        assert products[3].excel_row == 6  # Skipped row 5 due to missing name
+
+
+class TestExcelReaderFieldMapping:
+    """Tests for ExcelReader field mapping functionality."""
+
+    def test_chinese_field_mapping(self, tmp_path):
+        """Test mapping Chinese field names to English."""
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+
+        # Use Chinese headers
+        ws.append(["商品名称", "商品规格", "商品编码", "规格编码", "商品链接"])
+        ws.append(["HAGLOFS Jacket", "Red", "HJ001", "HJ001-R", "http://example.com"])
+
+        file_path = tmp_path / "chinese_headers.xlsx"
+        wb.save(file_path)
+        wb.close()
+
+        reader = ExcelReader()
+        products = reader.read(str(file_path))
+
+        assert len(products) == 1
+        assert products[0].name == "HAGLOFS Jacket"
+        assert products[0].spec == "Red"
+
+    def test_english_field_mapping(self, tmp_path):
+        """Test that English field names also work."""
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+
+        # Use English headers
+        ws.append(["name", "spec", "product_code", "spec_code", "product_url"])
+        ws.append(["HAGLOFS Jacket", "Blue", "HJ002", "HJ002-B", "http://example.com"])
+
+        file_path = tmp_path / "english_headers.xlsx"
+        wb.save(file_path)
+        wb.close()
+
+        reader = ExcelReader()
+        products = reader.read(str(file_path))
+
+        assert len(products) == 1
+        assert products[0].name == "HAGLOFS Jacket"
+        assert products[0].spec == "Blue"
+        assert products[0].product_code == "HJ002"

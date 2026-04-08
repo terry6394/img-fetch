@@ -1,0 +1,12 @@
+{
+  "name": "img-fetch",
+  "description": "根据Excel表格或清单中的商品名称和规格抓取产品图片",
+  "commands": ["/img-fetch"],
+  "parameters": {
+    "input_file": "输入文件路径（Excel/CSV/JSON）",
+    "output_dir": "输出目录路径（可选，默认 ./output）",
+    "brand_field": "品牌字段名（可选，默认从商品名称提取）",
+    "name_field": "商品名称字段名",
+    "spec_field": "商品规格字段名"
+  }
+}
