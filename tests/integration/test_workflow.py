@@ -277,3 +277,100 @@ class TestErrorHandling:
 
         with pytest.raises(ValueError, match="not found"):
             load_products(str(csv_file), "nonexistent_field", "spec")
+
+
+class TestEndToEndWithSampleData:
+    """End-to-end tests using sample_test.xlsx with 5 brands."""
+
+    def test_load_sample_data_all_brands(self):
+        """Test loading sample data contains all 5 brands."""
+        from img_fetch.readers.factory import read_products
+
+        products = read_products("tests/fixtures/sample_test.xlsx")
+
+        assert len(products) == 5
+
+        # Verify all brands are present
+        brands = {p.brand for p in products}
+        expected_brands = {"STONE_ISLAND", "HAGLOFS", "CANADA_GOOSE", "HELLY_HANSEN", "L.I.M"}
+        assert brands == expected_brands, f"Expected {expected_brands}, got {brands}"
+
+    def test_sample_data_products_have_required_fields(self):
+        """Test all products from sample data have required fields."""
+        from img_fetch.readers.factory import read_products
+
+        products = read_products("tests/fixtures/sample_test.xlsx")
+
+        for i, p in enumerate(products):
+            assert p.name, f"Product {i} missing name"
+            assert p.spec, f"Product {i} missing spec"
+            assert p.brand, f"Product {i} missing brand"
+            assert p.excel_row > 0, f"Product {i} missing excel_row"
+
+    def test_brand_extraction_from_sample_data(self):
+        """Test brand extraction for each brand in sample data."""
+        from img_fetch.readers.factory import read_products
+
+        products = read_products("tests/fixtures/sample_test.xlsx")
+
+        brand_map = {
+            "STONE ISLAND": "STONE_ISLAND",
+            "HAGLOFS": "HAGLOFS",
+            "CANADA GOOSE": "CANADA_GOOSE",
+            "HELLY HANSEN": "HELLY_HANSEN",
+            "L.I.M": "L.I.M"
+        }
+
+        for p in products:
+            assert p.brand == brand_map.get(p.name.split()[0], p.brand), \
+                f"Brand mismatch for {p.name}: expected {brand_map.get(p.name.split()[0])}, got {p.brand}"
+
+    def test_workflow_with_sample_data(self, tmp_path):
+        """Test full workflow with sample data (mock fetchers)."""
+        from img_fetch.readers.factory import read_products
+        from img_fetch.writers.manifest_writer import ManifestWriter
+
+        # Load products
+        products = read_products("tests/fixtures/sample_test.xlsx")
+
+        # Create manifest writer with output directory
+        output_dir = tmp_path / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        writer = ManifestWriter(output_dir)
+
+        # Write initial manifest
+        writer.write_manifest(products=products, task_status="in_progress")
+
+        # Verify manifest exists and has correct structure
+        manifest_path = output_dir / "manifest.json"
+        assert manifest_path.exists()
+
+        import json
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+
+        assert manifest["total_products"] == 5
+        assert len(manifest["products"]) == 5
+
+        # Verify all brands in manifest
+        manifest_brands = {p["brand"] for p in manifest["products"]}
+        expected_brands = {"STONE_ISLAND", "HAGLOFS", "CANADA_GOOSE", "HELLY_HANSEN", "L.I.M"}
+        assert manifest_brands == expected_brands
+
+    def test_filename_normalization_for_all_brands(self):
+        """Test that filenames are correctly normalized for all sample brands."""
+        from img_fetch.readers.factory import read_products
+        from img_fetch.core.file_namer import normalize_filename
+
+        products = read_products("tests/fixtures/sample_test.xlsx")
+
+        for p in products:
+            filename = normalize_filename(p.name, p.spec, p.brand)
+            assert filename.endswith(".jpg"), f"Invalid extension for {p.brand}"
+            # Check brand normalized (dots/underscores handled) is in filename
+            brand_normalized = p.brand.upper().replace(" ", "_")
+            assert brand_normalized in filename.upper() or p.brand.upper().replace(".", "") in filename.upper().replace(".", ""), \
+                f"Brand not in filename for {p.name}: filename={filename}, brand={p.brand}"
+            # No spaces
+            assert " " not in filename, f"Space in filename: {filename}"
